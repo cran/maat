@@ -8,7 +8,7 @@ NULL
 #' @slot examinee_list a list of \code{\linkS4class{examinee}} objects.
 #' @slot assessment_structure an \code{\linkS4class{assessment_structure}} object.
 #' @slot module_list a module list from \code{\link{loadModules}}.
-#' @slot config the \code{\linkS4class{config_Shadow}} object used in the simulation.
+#' @slot config the list of \code{\linkS4class{config_Shadow}} objects used in the simulation for each module.
 #' @slot cut_scores the cut scores used in the simulation.
 #' @slot overlap_control_policy the policy used in the simulation.
 #' @slot transition_policy the policy used in the simulation.
@@ -27,7 +27,7 @@ setClass("output_maat",
     examinee_list        = "list",
     assessment_structure = "assessment_structure",
     module_list          = "list",
-    config               = "config_Shadow",
+    config               = "list_or_config_Shadow",
     cut_scores           = "list",
     overlap_control_policy = "character",
     transition_policy      = "character",
@@ -44,7 +44,7 @@ setClass("output_maat",
     examinee_list        = list(),
     assessment_structure = new("assessment_structure"),
     module_list          = list(),
-    config               = new("config_Shadow"),
+    config               = list(),
     cut_scores           = list(),
     overlap_control_policy = character(0),
     transition_policy      = character(0),
@@ -104,7 +104,7 @@ simTheta <- function(N, mean_v, sd_v, cor_v) {
 #' @param sd_v a vector containing the standard deviation of each dimension.
 #' @param cor_v a correlation matrix.
 #' @param assessment_structure an \code{\linkS4class{assessment_structure}} object. This can be created using \code{\link{createAssessmentStructure}}.
-#' @param initial_grade the initial grade for all examinees. The grade must exist in \code{module_list}. (default = \code{G4})
+#' @param initial_grade the initial grade for all examinees. The grade must exist in \code{module_list}. Also used as the grade of record when the initial phase and test points to a module position greater than 1. (default = \code{G4})
 #' @param initial_phase the initial phase for all examinees. The phase must exist in \code{module_list}. (default = \code{P1})
 #' @param initial_test the initial test for all examinees. (default = \code{T1})
 #' @return a list of \code{\linkS4class{examinee}} objects.
@@ -126,7 +126,11 @@ simTheta <- function(N, mean_v, sd_v, cor_v) {
 #'
 #' @export
 simExaminees <- function(N, mean_v, sd_v, cor_v, assessment_structure,
-  initial_grade = "G4", initial_phase = "P1", initial_test = "T1") {
+  initial_grade = "G4", initial_test = "T1", initial_phase = "P1") {
+
+  isGrade(initial_grade)
+  isTest(initial_test)
+  isPhase(initial_phase)
 
   true_theta <- simTheta(N, mean_v, sd_v, cor_v)
 
@@ -145,6 +149,10 @@ simExaminees <- function(N, mean_v, sd_v, cor_v, assessment_structure,
     x@current_grade <- initial_grade
     x@current_phase <- initial_phase
     x@current_test  <- initial_test
+    x@grade_log     <- rep(NA_character_, x@n_module)
+    x@phase_log     <- rep(NA_character_, x@n_module)
+    x@test_log      <- rep(NA_character_, x@n_module)
+    x@grade_log[1]  <- initial_grade
     examinee_list[[i]] <- x
     names(examinee_list)[i] <- x@examinee_id
   }
@@ -160,7 +168,7 @@ simExaminees <- function(N, mean_v, sd_v, cor_v, assessment_structure,
 #' @param examinee_list an examinee list from \code{\link{simExaminees}}.
 #' @param assessment_structure a \code{\linkS4class{assessment_structure}} object.
 #' @param module_list a module list from \code{\link{loadModules}}.
-#' @param config a \code{\linkS4class{config_Shadow}} object.
+#' @param config a \code{\linkS4class{config_Shadow}} object. Also accepts a list of \code{\linkS4class{config_Shadow}} objects to use separate configurations for each module. Must be from 'TestDesign' 1.3.3 or newer, and its \code{exclude_policy$method} slot must be \code{SOFT}.
 #' @param cut_scores a named list containing cut scores to be used in each grade. Each element must be named in the form \code{G?}, where \code{?} is a number.
 #' @param overlap_control_policy overlap control is performed by excluding administered items from being administered again within the same examinee.
 #' \itemize{
@@ -204,12 +212,13 @@ simExaminees <- function(N, mean_v, sd_v, cor_v, assessment_structure,
 #'
 #' @examples
 #' \donttest{
-#' library(TestDesign)
+#' library(TestDesign) # >= 1.3.3
 #' config <- createShadowTestConfig(
-#'   final_theta = list(
-#'     method = "MLE"
-#'   )
+#'   final_theta = list(method = "MLE"),
+#'   exclude_policy = list(method = "SOFT", M = 100)
 #' )
+#' # exclude_policy must be SOFT
+#'
 #' examinee_list <- maat(
 #'   examinee_list          = examinee_list_math,
 #'   assessment_structure   = assessment_structure_math,
@@ -222,8 +231,13 @@ simExaminees <- function(N, mean_v, sd_v, cor_v, assessment_structure,
 #' }
 #' @export
 maat <- function(
-  examinee_list = examinee_list, assessment_structure, module_list, config, cut_scores,
-  overlap_control_policy, transition_policy = "CI",
+  examinee_list = examinee_list,
+  assessment_structure = NULL,
+  module_list = NULL,
+  config = NULL,
+  cut_scores = NULL,
+  overlap_control_policy = NULL,
+  transition_policy = "CI",
   combine_policy = "conditional",
   transition_CI_alpha = NULL,
   transition_percentile_lower = NULL,
@@ -233,6 +247,38 @@ maat <- function(
   prior_mean_user = NULL,
   prior_sd = 1,
   verbose = TRUE) {
+
+  if (is.null(assessment_structure)) {
+    stop("'assessment_structure' is required but was not supplied. See ?maat for details.")
+  }
+  if (is.null(module_list)) {
+    stop("'module_list' is required but was not supplied. See ?maat for details.")
+  }
+  if (is.null(config)) {
+    stop("'config' is required but was not supplied. See ?maat for details.")
+  }
+  if (is.null(cut_scores)) {
+    stop("'cut_scores' is required but was not supplied. See ?maat for details.")
+  }
+  if (is.null(overlap_control_policy)) {
+    stop("'overlap_control_policy' is required but was not supplied. See ?maat for details.")
+  }
+  if (!"exclude_policy" %in% slotNames(config)) {
+    stop("'config' does not have '@exclude_policy' slot: 'config' from createShadowTestConfig() in TestDesign >= 1.3.3 is required.")
+  }
+  if ("exclude_policy" %in% slotNames(config)) {
+    if (tolower(config@exclude_policy$method) != "soft") {
+      stop(sprintf(
+        "unrecognized 'config@exclude_policy$method': %s (must be SOFT)",
+        config@exclude_policy$method
+      ))
+    }
+    if (is.null(config@exclude_policy$M)) {
+      stop(sprintf(
+        "unrecognized 'config@exclude_policy$M': NULL (must be a numeric value)"
+      ))
+    }
+  }
 
   if (!overlap_control_policy %in% c("all", "within_test", "none")) {
     stop(sprintf("unrecognized 'overlap_control_policy': %s", overlap_control_policy))
@@ -307,6 +353,21 @@ maat <- function(
   ))
   names(module_list_by_name) <- module_names
 
+  # Expand config to list
+  if (inherits(config, "config_Shadow")) {
+    config_list <- vector("list", n_modules)
+    for (m in 1:n_modules) {
+      config_list[[m]] <- config
+    }
+  }
+  if (inherits(config, "list")) {
+    if (length(config) != n_modules) {
+      stop(sprintf("unexpected 'config' length: %s (must be %s)", length(config), n_modules))
+    }
+    config_list <- config
+  }
+  config <- NULL
+
   # Determine the module
   examinee_list <- lapply(
     examinee_list,
@@ -315,9 +376,20 @@ maat <- function(
     }
   )
 
-  # Iteration by All Phases -------------
+  # Determine the module position (assuming everyone shares the same initial phase/test)
+  module_position_list <- lapply(
+    examinee_list,
+    function(x) {
+      getModulePosition(
+        x@current_phase, x@current_test, assessment_structure
+      )
+    }
+  )
+  starting_module_position <- unique(unlist(module_position_list))
 
-  for (current_module_position in 1:n_modules) {
+  # Repeat through all module positions
+
+  for (current_module_position in starting_module_position:n_modules) {
 
     examinee_current_module <- lapply(examinee_list, function(x) {
       x@current_module
@@ -347,7 +419,7 @@ maat <- function(
 
       # run simulation for this group
 
-      config_thisgroup             <- config
+      config_thisgroup             <- config_list[[current_module_position]]
       administered_entry           <- NULL
       prior_par                    <- NULL
       include_items_for_estimation <- NULL
@@ -418,7 +490,7 @@ maat <- function(
         current_module_position
       )
 
-      if (current_module_position > 1) {
+      if (current_module_position > starting_module_position) {
 
         # use the theta estimate from the previous routing
         config_thisgroup@item_selection$initial_theta <- unlist(lapply(
@@ -621,7 +693,7 @@ maat <- function(
     examinee_list <- lapply(
       examinee_list,
       function(x) {
-        x <- updateThetaUsingCombined(x, current_module_position, config)
+        x <- updateThetaUsingCombined(x, current_module_position, config_list[[current_module_position]])
       }
     )
 
@@ -648,7 +720,8 @@ maat <- function(
       examinee_list <- lapply(
         examinee_list,
         function(x) {
-          item_pool_for_this_examinee <- module_list[[x@current_grade]][[x@current_phase]]@constraints@pool
+          module <- module_list[[x@current_grade]][[x@current_test]][[x@current_phase]]
+          item_pool_for_this_examinee <- module@constraints@pool
           x <- updateGrade(
             x, assessment_structure, current_module_position, cut_scores, transition_policy,
             transition_CI_alpha,
@@ -665,11 +738,19 @@ maat <- function(
 
   }
 
+  # Update assessment-level theta
+  examinee_list <- lapply(
+    examinee_list,
+    function(x) {
+      x <- updateAssessmentLevelTheta(x, config_list[[current_module_position]])
+    }
+  )
+
   o <- new("output_maat")
   o@examinee_list <- examinee_list
   o@assessment_structure <- assessment_structure
   o@module_list <- module_list
-  o@config <- config
+  o@config <- config_list
   o@cut_scores <- cut_scores
   o@overlap_control_policy <- overlap_control_policy
   o@transition_policy      <- transition_policy
@@ -1030,7 +1111,7 @@ getItemNamesPerGrade <- function(module_list) {
   items_per_grade <- lapply(
     module_list,
     function(x) {
-      x$P1@constraints@pool@id
+      x$T1$P1@constraints@pool@id
     }
   )
   return(items_per_grade)
@@ -1060,6 +1141,9 @@ getItemExposureRate <- function(x) {
   exposure_rate_stats     <- list()
 
   for (test in tests) {
+
+    pool_usage[[test]] <- list()
+
     for (grade in grades) {
 
       items_in_this_grade <- items_per_grade[[grade]]

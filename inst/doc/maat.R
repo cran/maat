@@ -3,16 +3,16 @@ library(maat)
 library(knitr)
 library(kableExtra)
 
-## ---- echo = FALSE, out.width = "900px"---------------------------------------
+## ---- echo = FALSE, out.width = "900px", fig.ext = "svg"----------------------
 include_graphics("assessment.svg")
 
-## ---- echo = FALSE, out.width = "900px"---------------------------------------
+## ---- echo = FALSE, out.width = "900px", fig.ext = "svg"----------------------
 include_graphics("routing_T1T2.svg")
 
-## ---- echo = FALSE, out.width = "900px"---------------------------------------
+## ---- echo = FALSE, out.width = "900px", fig.ext = "svg"----------------------
 include_graphics("routing_T2T3.svg")
 
-## ---- echo = FALSE, out.width = "900px"---------------------------------------
+## ---- echo = FALSE, out.width = "900px", fig.ext = "svg"----------------------
 include_graphics("routing_T3.svg")
 
 ## ---- results = "hide"--------------------------------------------------------
@@ -40,12 +40,12 @@ examinee_list <- simExaminees(
 )
 
 ## ---- echo = FALSE------------------------------------------------------------
-fn <- system.file("extdata", "module_definition_MATH_normal_N500.csv", package = "maat")
+fn <- system.file("extdata", "module_definition_MATH_normal_N500_flexible.csv", package = "maat")
 d  <- read.csv(fn)
 kable_styling(kable(d))
 
 ## -----------------------------------------------------------------------------
-fn <- system.file("extdata", "module_definition_MATH_normal_N500.csv", package = "maat")
+fn <- system.file("extdata", "module_definition_MATH_normal_N500_flexible.csv", package = "maat")
 module_list <- loadModules(
   fn = fn,
   base_path = system.file(package = "maat"),
@@ -67,7 +67,8 @@ cut_scores <- list(
 library(TestDesign)
 config <- createShadowTestConfig(
   interim_theta = list(method = "MLE"),
-  final_theta = list(method = "MLE")
+  final_theta = list(method = "MLE"),
+  exclude_policy = list(method = "SOFT", M = 100)
 )
 
 ## ---- results = "hide", message = FALSE---------------------------------------
@@ -83,6 +84,7 @@ maat_output_CI <- maat(
   combine_policy         = "conditional",
   transition_CI_alpha    = 0.05
 )
+
 set.seed(1)
 maat_output_difficulty <- maat(
   examinee_list          = examinee_list,

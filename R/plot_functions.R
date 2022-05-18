@@ -15,24 +15,24 @@ countModuleRoutes <- function(examinee_list, assessment_structure) {
     }
   )
   starting_grade <- unique(unlist(starting_grade))
-  starting_grade_num <- as.numeric(gsub("[^\\d]+", "", starting_grade, perl = TRUE))
+  starting_grade_value <- valueOf(starting_grade)
 
   n_test  <- assessment_structure@n_test
   n_phase <- assessment_structure@n_phase
   route_limit_below <- assessment_structure@route_limit_below
   route_limit_above <- assessment_structure@route_limit_above
 
-  max_grade <- starting_grade_num + route_limit_above
-  min_grade <- starting_grade_num - route_limit_below
+  max_grade <- starting_grade_value + route_limit_above
+  min_grade <- starting_grade_value - route_limit_below
 
   module_map <- vector("list", n_test * n_phase)
-  module_map[1] <- list(starting_grade_num)
+  module_map[1] <- list(starting_grade_value)
 
   for (i in 1:(n_test * n_phase - 1)) {
     temp_max <- max(unlist(module_map[i]))
     temp_min <- min(unlist(module_map[i]))
-    next_max_grade <- ifelse((temp_max + 1) <  max_grade, starting_grade_num + 1, max_grade)
-    next_min_grade <- ifelse((temp_min - 1) >= min_grade, starting_grade_num - 1, min_grade)
+    next_max_grade <- ifelse((temp_max + 1) <  max_grade, starting_grade_value + 1, max_grade)
+    next_min_grade <- ifelse((temp_min - 1) >= min_grade, starting_grade_value - 1, min_grade)
     module_map[(i + 1)] <- list(next_min_grade:next_max_grade)
   }
 
@@ -54,19 +54,19 @@ countModuleRoutes <- function(examinee_list, assessment_structure) {
     min_grade <- min(module_path[[2]][, 1])
     module_path[[2]][module_path[[2]][, 1] == min_grade, 2] <-
       ifelse(
-        starting_grade_num == min_grade,
+        starting_grade_value == min_grade,
         min_grade, min_grade + 1
       )
     min_grade <- min(module_path[[4]][, 1])
     module_path[[4]][module_path[[4]][, 1] == min_grade, 2] <-
       ifelse(
-        starting_grade_num == min_grade,
+        starting_grade_value == min_grade,
         min_grade, min_grade + 1
       )
   }
 
   if ("R2" %in% test_routing_restrictions) {
-    sgn <- starting_grade_num
+    sgn <- starting_grade_value
     module_path[[2]][module_path[[2]][, 1] == sgn & module_path[[2]][, 2] == (sgn - 1), 2] <- sgn
     min_grade <- min(module_path[[4]][, 1])
     module_path[[4]][module_path[[4]][, 1] == sgn & module_path[[4]][, 2] == (sgn - 1), 2] <- sgn
@@ -132,7 +132,7 @@ countModuleRoutes <- function(examinee_list, assessment_structure) {
 
   o <- list(
     starting_grade     = starting_grade,
-    starting_grade_num = starting_grade_num,
+    starting_grade_value = starting_grade_value,
     module_arrow       = module_path,
     module_map         = module_map,
     module_names       = unlist(module_map),
@@ -166,9 +166,8 @@ countModuleRoutes <- function(examinee_list, assessment_structure) {
 #' \donttest{
 #' library(TestDesign)
 #' config <- createShadowTestConfig(
-#'   final_theta = list(
-#'     method = "MLE"
-#'   )
+#'   final_theta = list(method = "MLE"),
+#'   exclude_policy = list(method = "SOFT", M = 100)
 #' )
 #' examinee_list <- maat(
 #'   examinee_list          = examinee_list_math,
@@ -192,7 +191,7 @@ setMethod(
   f = "plot",
   signature = "output_maat",
   definition = function(
-    x, y, type, examinee_id, cut_scores = NULL, theta_range = c(-4, 4), main = NULL, box_color = "PaleTurquoise") {
+    x, y, type, examinee_id = 1, cut_scores = NULL, theta_range = c(-4, 4), main = NULL, box_color = "PaleTurquoise") {
 
     if (type == "correlation") {
 
@@ -209,8 +208,13 @@ setMethod(
         function(o) {
           theta <- c()
           for (test in unique(o@test_log)) {
-            idx <- max(which(o@test_log == test))
-            theta <- c(theta, o@true_theta[idx])
+            if (is.na(test)) {
+              theta <- c(theta, NA)
+            }
+            if (!is.na(test)) {
+              idx <- max(which(o@test_log == test))
+              theta <- c(theta, o@true_theta[idx])
+            }
           }
           return(theta)
         }
@@ -222,17 +226,22 @@ setMethod(
         function(o) {
           theta <- c()
           for (test in unique(o@test_log)) {
-            idx <- max(which(o@test_log == test))
-            theta <- c(theta, o@estimated_theta_for_routing[[idx]]$theta)
+            if (is.na(test)) {
+              theta <- c(theta, NA)
+            }
+            if (!is.na(test)) {
+              idx <- max(which(o@test_log == test))
+              theta <- c(theta, o@estimated_theta_for_routing[[idx]]$theta)
+            }
           }
           return(theta)
         }
       )
       final_theta <- matrix(unlist(final_theta), length(final_theta), byrow = TRUE)
 
-      old_mfrow <- par()$mfrow
+      old_par <- par(no.readonly = TRUE)
       on.exit({
-        par(mfrow = old_mfrow)
+        par(old_par)
       })
       par(mfrow = c(1, n_tests))
 
@@ -278,6 +287,7 @@ setMethod(
       estimated_theta_for_routing <- unlist(lapply(
         examinee@estimated_theta_for_routing,
         function(xx) {
+          if (is.null(xx)) return(NA)
           xx$theta
         }
       ))
@@ -285,6 +295,7 @@ setMethod(
       interim_theta <- unlist(lapply(
         examinee@interim_theta,
         function(xx) {
+          if (is.null(xx)) return(NA)
           xx$theta
         }
       ))
@@ -292,6 +303,7 @@ setMethod(
       n_items <- unlist(lapply(
         examinee@interim_theta,
         function(xx) {
+          if (is.null(xx)) return(1)
           length(xx$theta)
         }
       ))
@@ -341,11 +353,18 @@ setMethod(
       ))
       names(module_list_by_name) <- module_names
 
-      response <- unlist(examinee@response)
+      response <- unlist(lapply(
+        examinee@response,
+        function(xx) {
+          if (is.null(xx)) return(-1)
+          xx
+        }
+      ))
 
       n_category <- list()
       for (m in 1:6) {
         module <- module_list_by_name[[examinee@module_log[m]]]
+        if (is.null(module)) next
         administered_items <- examinee@administered_items[[m]]
         n_category[[m]] <- sapply(
           1:length(administered_items),
@@ -356,11 +375,18 @@ setMethod(
         )
       }
 
-      n_category <- unlist(n_category)
+      n_category <- unlist(lapply(
+        n_category,
+        function(xx) {
+          if (is.null(xx)) return(NA)
+          xx
+        }
+      ))
 
       response_color <- sapply(
         1:length(response),
         function(xx) {
+          if (is.na(n_category[xx])) return("white")
           if (n_category[xx] == 2) {
             if (response[xx] == 0) return("red")
             if (response[xx] == 1) return("lime green")
@@ -430,14 +456,16 @@ setMethod(
       box_name[!visibility] <- ""
       box_name <- substr(box_name, 1, 2)
 
-      old_mar <- par()$mar
+      cell_layout <- rep(n_modules, n_grades)
+
+      old_par <- par(no.readonly = TRUE)
       on.exit({
-        par(mar = old_mar)
+        par(old_par)
       })
       par(mar = c(1, 1, 1, 1))
       plotmat(
         M,
-        pos = c(6, 6, 6, 6),
+        pos = cell_layout,
         absent   = -1,
         name     = box_name,
         box.type = box_type,

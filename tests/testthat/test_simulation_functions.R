@@ -31,12 +31,6 @@ test_that("simExaminee works", {
 
 })
 
-config <- createShadowTestConfig(
-  final_theta = list(
-    method = "MLE"
-  )
-)
-
 conditions <- expand.grid(
   overlap_control_policy = c(
     "all", "within_test", "none"
@@ -52,6 +46,11 @@ conditions <- expand.grid(
     "always",
     "never"
   ),
+  estimation_method = c(
+    "MLE",
+    "MLEF",
+    "EAP"
+  ),
   stringsAsFactors = FALSE
 )
 
@@ -59,10 +58,11 @@ for (condition in 1:dim(conditions)[1]) {
 
   test_that(
     sprintf(
-      "maat() works (%s, %s, %s)",
+      "maat() works (%s, %s, %s, %s)",
       conditions$overlap_control_policy[condition],
       conditions$transition_policy[condition],
-      conditions$combine_policy[condition]
+      conditions$combine_policy[condition],
+      conditions$estimation_method[condition]
     ),
     {
 
@@ -70,6 +70,16 @@ for (condition in 1:dim(conditions)[1]) {
         skip_on_cran()
         skip_on_ci()
       }
+
+      config <- createShadowTestConfig(
+        final_theta = list(
+          method = conditions$estimation_method[condition]
+        ),
+        exclude_policy = list(
+          method = "SOFT",
+          M = 100
+        )
+      )
 
       set.seed(1)
       examinee_list <- examinee_list_math[1:2]
@@ -95,6 +105,10 @@ for (condition in 1:dim(conditions)[1]) {
       o <- getAdaptivityIndex(solution)
       o <- getAdministeredItemsPerTest(solution)
       o <- getItemExposureRate(solution)
+
+      plot(solution, type = "route")
+      plot(solution, type = "correlation")
+      plot(solution, type = "audit")
 
       expect_true(TRUE)
 

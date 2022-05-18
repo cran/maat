@@ -10,7 +10,7 @@
   x,
   y,
   type,
-  examinee_id,
+  examinee_id = 1,
   cut_scores = NULL,
   theta_range = c(-4, 4),
   main = NULL,
@@ -44,9 +44,8 @@ Extension of plot()
 \donttest{
 library(TestDesign)
 config <- createShadowTestConfig(
-  final_theta = list(
-    method = "MLE"
-  )
+  final_theta = list(method = "MLE"),
+  exclude_policy = list(method = "SOFT", M = 100)
 )
 examinee_list <- maat(
   examinee_list          = examinee_list_math,
